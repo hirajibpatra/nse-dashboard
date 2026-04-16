@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # NSE India Stock Dashboard
 
 Interactive dashboard for Indian stock market analysis with live data from NSE India.
@@ -34,3 +35,6 @@ The dashboard will open at `http://localhost:8501`
 3. Top Gainers/Losers: https://www.nseindia.com/market-data/top-gainers-losers
 
 Note: Indices data is fetched via Yahoo Finance. OI and gainers/losers use sample data (NSE website requires more complex setup for live scraping).
+=======
+# nse-dashboard
+>>>>>>> 7caac15ccf5776bfd1194769e830d0c49a43634a

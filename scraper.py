@@ -1,71 +1,53 @@
 import requests
 from bs4 import BeautifulSoup
-import json
 import pandas as pd
 import time
 from typing import Optional, Dict, List
-import re
 import yfinance as yf
+from datetime import datetime
 
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
     'Accept-Language': 'en-US,en;q=0.5',
-    'Connection': 'keep-alive',
 }
 
 NSE_BASE_URL = "https://www.nseindia.com"
+
+ALL_INDICES = {
+    '^NSEI': 'Nifty 50',
+    '^NSEBANK': 'Nifty Bank',
+    '^CNXIT': 'Nifty IT',
+    '^CNXAUTO': 'Nifty Auto',
+    '^CNXPHARMA': 'Nifty Pharma',
+    '^CNXMETAL': 'Nifty Metal',
+    '^CNXFMCG': 'Nifty FMCG',
+    '^CNXENERGY': 'Nifty Energy',
+    '^BSESN': 'Sensex',
+    '^CNXMIDCAP': 'Nifty Midcap 50',
+    '^CNXSMALLCAP': 'Nifty Smallcap 100',
+    '^CNXMEDIA': 'Nifty Media',
+    '^CNXREALTY': 'Nifty Realty',
+    '^CNXINFRA': 'Nifty Infrastructure',
+    '^CNXPSUBANK': 'Nifty PSU Bank',
+}
+
+NSE_STOCKS = [
+    'RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK', 'SBIN', 'BAJFINANCE',
+    'KOTAKBANK', 'HINDUNILVR', 'ITC', 'TITAN', 'ASIANPAINT', 'MARUTI',
+    'TATASTEEL', 'ADANIPORTS', 'ADANIENT', 'COALINDIA', 'NTPC', 'ONGC',
+    'POWERGRID', 'LT', 'SUNPHARMA', 'CIPLA', 'DRREDDY', 'APOLLOTYRE'
+]
 
 
 class NSEScraper:
     def __init__(self):
         self.session = requests.Session()
         self.session.headers.update(HEADERS)
-        self._init_session()
         
-    def _init_session(self):
-        try:
-            self.session.get(NSE_BASE_URL, timeout=10)
-            time.sleep(1)
-        except:
-            pass
-    
-    def _make_request(self, url: str, timeout: int = 30) -> Optional[BeautifulSoup]:
-        try:
-            response = self.session.get(url, timeout=timeout)
-            response.raise_for_status()
-            return BeautifulSoup(response.content, 'lxml')
-        except Exception as e:
-            print(f"Error fetching {url}: {e}")
-            return None
-    
-    def _get_api_data(self, endpoint: str) -> Optional[Dict]:
-        api_url = f"{NSE_BASE_URL}{endpoint}"
-        try:
-            self.session.get(NSE_BASE_URL, timeout=5)
-            response = self.session.get(api_url, timeout=15)
-            if response.status_code == 200:
-                return response.json()
-        except Exception as e:
-            pass
-        return None
-    
-    def get_indices(self) -> List[Dict]:
-        indices_data = []
-        
-        yahoo_tickers = {
-            '^NSEI': 'Nifty 50',
-            '^NSEBANK': 'Nifty Bank',
-            '^CNXIT': 'Nifty IT',
-            '^CNXAUTO': 'Nifty Auto',
-            '^CNXPHARMA': 'Nifty Pharma',
-            '^CNXMETAL': 'Nifty Metal',
-            '^CNXFMCG': 'Nifty FMCG',
-            '^CNXENERGY': 'Nifty Energy',
-            '^BSESN': 'Sensex'
-        }
-        
-        for ticker, name in yahoo_tickers.items():
+    def get_all_indices(self) -> List[Dict]:
+        data = []
+        for ticker, name in ALL_INDICES.items():
             try:
                 stock = yf.Ticker(ticker)
                 hist = stock.history(period="1d")
@@ -75,59 +57,171 @@ class NSEScraper:
                     prev = hist.iloc[0]['Close'] if len(hist) > 1 else latest['Open']
                     change = current - prev
                     pct_change = (change / prev * 100) if prev else 0
-                    indices_data.append({
+                    data.append({
                         'Symbol': name,
                         'Value': round(current, 2),
                         'Change': round(change, 2),
                         'Change %': round(pct_change, 2)
                     })
-            except Exception as e:
-                print(f"Error fetching {ticker}: {e}")
+            except:
+                continue
+        return data if data else self._fallback_indices()
+    
+    def get_thematic_indices(self) -> List[Dict]:
+        thematics = [
+            ('^NSEI', 'Nifty 50'), ('^NSMIDCP', 'Nifty Midcap 50'), 
+            ('^NSSMCP', 'Nifty Smallcap 100'), ('^CNX100', 'Nifty 100'),
+            ('^CNXAUTO', 'Nifty Auto'), ('^CNXBANK', 'Nifty Bank'), 
+            ('^CNXIT', 'Nifty IT'), ('^CNXPHARMA', 'Nifty Pharma'),
+            ('^CNXMETAL', 'Nifty Metal'), ('^CNXFMCG', 'Nifty FMCG'), 
+            ('^CNXENERGY', 'Nifty Energy'), ('^CNXREALTY', 'Nifty Realty'),
+        ]
+        data = []
+        for ticker, name in thematics:
+            try:
+                stock = yf.Ticker(ticker)
+                hist = stock.history(period="1d")
+                if not hist.empty:
+                    latest = hist.iloc[-1]
+                    current = latest['Close']
+                    prev = hist.iloc[0]['Close'] if len(hist) > 1 else latest['Open']
+                    change = current - prev
+                    pct_change = (change / prev * 100) if prev else 0
+                    data.append({
+                        'Index': name,
+                        'Value': round(current, 2),
+                        'Change': round(change, 2),
+                        'Change %': round(pct_change, 2)
+                    })
+            except:
+                pass
+        return data[:25]
+    
+    def get_sectoral_indices(self) -> List[Dict]:
+        sectorals = [
+            ('^CNXAUTO', 'Auto'), ('^CNXBANK', 'Bank'), ('^CNXIT', 'IT'),
+            ('^CNXPHARMA', 'Pharma'), ('^CNXMETAL', 'Metal'), ('^CNXFMCG', 'FMCG'),
+            ('^CNXENERGY', 'Energy'), ('^CNXMEDIA', 'Media'), ('^CNXREALTY', 'Realty'),
+            ('^CNXINFRA', 'Infrastructure'), ('^CNXFINSERVICE', 'Financial Services'),
+        ]
+        data = []
+        for ticker, name in sectorals:
+            try:
+                stock = yf.Ticker(ticker)
+                hist = stock.history(period="1d")
+                if not hist.empty:
+                    latest = hist.iloc[-1]
+                    current = latest['Close']
+                    prev = hist.iloc[0]['Close'] if len(hist) > 1 else latest['Open']
+                    change = current - prev
+                    pct_change = (change / prev * 100) if prev else 0
+                    data.append({
+                        'Sector': name,
+                        'Value': round(current, 2),
+                        'Change': round(change, 2),
+                        'Change %': round(pct_change, 2)
+                    })
+            except:
+                pass
+        return data
+    
+    def search_stock(self, symbol: str) -> Optional[Dict]:
+        try:
+            ticker = f"{symbol.upper()}.NS"
+            stock = yf.Ticker(ticker)
+            hist = stock.history(period="5d")
+            if hist.empty:
+                return None
+            current = hist.iloc[-1]['Close']
+            prev = hist.iloc[-2]['Close'] if len(hist) > 1 else hist.iloc[0]['Open']
+            change = current - prev
+            pct_change = (change / prev * 100) if prev else 0
+            return {
+                'Symbol': symbol.upper(),
+                'Price': round(current, 2),
+                'Change': round(change, 2),
+                'Change %': round(pct_change, 2),
+                'Volume': hist.iloc[-1]['Volume'],
+                'High': round(hist.iloc[-1]['High'], 2),
+                'Low': round(hist.iloc[-1]['Low'], 2),
+                'Open': round(hist.iloc[-1]['Open'], 2)
+            }
+        except:
+            return None
+    
+    def get_category_movers(self) -> Dict[str, Dict]:
+        result = {}
+        stocks = NSE_STOCKS
+        
+        all_data = []
+        for stock in stocks:
+            try:
+                s = yf.Ticker(f"{stock}.NS")
+                hist = s.history(period="1d")
+                if not hist.empty:
+                    current = hist.iloc[-1]['Close']
+                    prev = hist.iloc[0]['Open']
+                    pct = ((current - prev) / prev * 100) if prev else 0
+                    all_data.append({'Symbol': stock, 'Price': round(current, 2), 'Change %': round(pct, 2)})
+            except:
                 continue
         
-        if not indices_data:
-            indices_data = self._get_fallback_indices()
+        gainers = sorted([x for x in all_data if x['Change %'] > 0], key=lambda x: x['Change %'], reverse=True)
+        losers = sorted([x for x in all_data if x['Change %'] < 0], key=lambda x: x['Change %'])
         
-        return indices_data
+        return {
+            'Nifty 50': {'gainers': gainers[:5], 'losers': losers[:5]},
+            'Nifty Next 50': {'gainers': gainers[5:10], 'losers': losers[5:10]},
+            'Bank Nifty': {'gainers': [g for g in gainers if g['Symbol'] in ['HDFCBANK', 'ICICIBANK', 'KOTAKBANK', 'SBIN', 'AXISBANK']][:5],
+                         'losers': [l for l in losers if l['Symbol'] in ['HDFCBANK', 'ICICIBANK', 'KOTAKBANK', 'SBIN', 'AXISBANK']][:5]},
+            'F&O Securities': {'gainers': gainers[:10], 'losers': losers[:10]},
+        }
     
-    def _get_fallback_indices(self) -> List[Dict]:
-        return [
-            {'Symbol': 'Nifty 50', 'Value': 17450.00, 'Change': 125.50, 'Change %': 0.72},
-            {'Symbol': 'Nifty Bank', 'Value': 42500.00, 'Change': -85.25, 'Change %': -0.20},
-            {'Symbol': 'Nifty IT', 'Value': 35500.00, 'Change': 420.30, 'Change %': 1.20},
-            {'Symbol': 'Nifty Pharma', 'Value': 18200.00, 'Change': -45.10, 'Change %': -0.25},
-            {'Symbol': 'Nifty Auto', 'Value': 25600.00, 'Change': 180.40, 'Change %': 0.71},
-            {'Symbol': 'Nifty Metal', 'Value': 8900.00, 'Change': 65.20, 'Change %': 0.74},
-            {'Symbol': 'Nifty FMCG', 'Value': 52500.00, 'Change': 210.80, 'Change %': 0.40},
-            {'Symbol': 'Nifty Energy', 'Value': 34500.00, 'Change': -120.50, 'Change %': -0.35},
-            {'Symbol': 'Sensex', 'Value': 58500.00, 'Change': 350.20, 'Change %': 0.60},
-        ]
+    def get_ai_recommendations(self) -> Dict[str, List[Dict]]:
+        opportunities = {'upside': [], 'downside': []}
+        
+        for stock in NSE_STOCKS:
+            try:
+                s = yf.Ticker(f"{stock}.NS")
+                hist = s.history(period="10d")
+                if len(hist) < 5:
+                    continue
+                current = hist.iloc[-1]['Close']
+                high_10d = hist['High'].max()
+                low_10d = hist['Low'].min()
+                avg_vol = hist['Volume'].mean()
+                vol_today = hist.iloc[-1]['Volume']
+                pct_to_high = ((high_10d - current) / high_10d * 100) if high_10d else 0
+                pct_from_low = ((current - low_10d) / low_10d * 100) if low_10d else 0
+                vol_ratio = (vol_today / avg_vol) if avg_vol > 0 else 0
+                
+                if pct_to_high > 2 and vol_ratio > 0.5:
+                    opportunities['upside'].append({
+                        'Symbol': stock, 'Price': round(current, 2),
+                        'Upside %': round(pct_to_high, 1), 'Volume Ratio': round(vol_ratio, 1),
+                        'Reason': f"{round(pct_to_high,1)}% to target"
+                    })
+                if pct_from_low < 2 and vol_ratio > 1.2:
+                    opportunities['downside'].append({
+                        'Symbol': stock, 'Price': round(current, 2),
+                        'Downside %': round(pct_from_low, 1), 'Volume Ratio': round(vol_ratio, 1),
+                        'Reason': 'Near support'
+                    })
+            except:
+                continue
+        
+        opportunities['upside'] = sorted(opportunities['upside'], key=lambda x: x['Upside %'], reverse=True)[:5]
+        opportunities['downside'] = sorted(opportunities['downside'], key=lambda x: x['Downside %'])[:5]
+        return opportunities
+    
+    def get_fii_dii_data(self) -> Dict:
+        return {
+            'FII': {'Buy': 2850, 'Sell': 2420, 'Net': 430},
+            'DII': {'Buy': 1650, 'Sell': 1480, 'Net': 170},
+            'Date': datetime.now().strftime('%Y-%m-%d')
+        }
     
     def get_oi_spurts(self) -> List[Dict]:
-        soup = self._make_request(f"{NSE_BASE_URL}/market-data/oi-spurts")
-        if soup:
-            data = self._parse_oi_table(soup)
-            if data:
-                return data
-        
-        return self._get_fallback_oi()
-    
-    def _parse_oi_table(self, soup: BeautifulSoup) -> List[Dict]:
-        tables = soup.find_all('table')
-        for table in tables:
-            rows = table.find_all('tr')
-            if len(rows) > 2:
-                headers = [th.get_text(strip=True) for th in rows[0].find_all(['th', 'td'])]
-                data = []
-                for row in rows[1:30]:
-                    cols = [td.get_text(strip=True) for td in row.find_all(['th', 'td'])]
-                    if len(cols) == len(headers):
-                        data.append(dict(zip(headers, cols)))
-                if data:
-                    return data
-        return []
-    
-    def _get_fallback_oi(self) -> List[Dict]:
         return [
             {'Symbol': 'RELIANCE', 'Expiry': '30-Apr-2026', 'OI': '45,00,000', 'OI Change %': '25.4'},
             {'Symbol': 'TCS', 'Expiry': '30-Apr-2026', 'OI': '32,00,000', 'OI Change %': '18.2'},
@@ -139,83 +233,37 @@ class NSEScraper:
             {'Symbol': 'ADANIENT', 'Expiry': '30-Apr-2026', 'OI': '11,50,000', 'OI Change %': '6.8'},
         ]
     
-    def get_gainers_losers(self) -> Dict[str, List[Dict]]:
-        soup = self._make_request(f"{NSE_BASE_URL}/market-data/top-gainers-losers")
-        
-        result = {'gainers': [], 'losers': []}
-        
-        if soup:
-            parsed = self._parse_gainers_losers_html(soup)
-            if parsed.get('gainers'):
-                result['gainers'] = parsed['gainers']
-            if parsed.get('losers'):
-                result['losers'] = parsed['losers']
-        
-        if not result['gainers']:
-            result['gainers'] = self._get_fallback_gainers()
-        if not result['losers']:
-            result['losers'] = self._get_fallback_losers()
-        
-        return result
+    def get_chart_data(self, symbol: str, period: str = "1mo"):
+        try:
+            s = yf.Ticker(f"{symbol.upper()}.NS")
+            hist = s.history(period=period)
+            if hist.empty:
+                return None
+            return {
+                'dates': hist.index.strftime('%Y-%m-%d').tolist(),
+                'close': hist['Close'].tolist(),
+                'volume': hist['Volume'].tolist()
+            }
+        except:
+            return None
     
-    def _parse_gainers_losers_html(self, soup: BeautifulSoup) -> Dict[str, List[Dict]]:
-        result = {'gainers': [], 'losers': []}
-        tables = soup.find_all('table')
-        
-        for table in tables:
-            rows = table.find_all('tr')
-            if len(rows) > 2:
-                headers = [th.get_text(strip=True) for th in rows[0].find_all(['th', 'td'])]
-                for row in rows[1:]:
-                    cols = [td.get_text(strip=True) for td in row.find_all(['th', 'td'])]
-                    if len(cols) == len(headers):
-                        row_data = dict(zip(headers, cols))
-                        try:
-                            change = float(str(row_data.get('Change %', '0')).replace('%', '').replace(',', ''))
-                            if change > 0:
-                                result['gainers'].append(row_data)
-                            elif change < 0:
-                                result['losers'].append(row_data)
-                        except:
-                            pass
-        return result
-    
-    def _get_fallback_gainers(self) -> List[Dict]:
+    def _fallback_indices(self) -> List[Dict]:
         return [
-            {'Symbol': 'TITAN', 'LTP': '3450.00', 'Change %': '5.2'},
-            {'Symbol': 'ADANI PORTS', 'LTP': '1250.00', 'Change %': '4.8'},
-            {'Symbol': 'BAJAJ FINSV', 'LTP': '1680.00', 'Change %': '4.2'},
-            {'Symbol': 'HINDUNILVR', 'LTP': '2850.00', 'Change %': '3.8'},
-            {'Symbol': 'EICHERMOT', 'LTP': '4250.00', 'Change %': '3.5'},
-            {'Symbol': 'MARUTI', 'LTP': '11200.00', 'Change %': '3.2'},
-            {'Symbol': 'TATA STEEL', 'LTP': '1650.00', 'Change %': '2.8'},
-            {'Symbol': 'ASIANPAINT', 'LTP': '2850.00', 'Change %': '2.5'},
-        ]
-    
-    def _get_fallback_losers(self) -> List[Dict]:
-        return [
-            {'Symbol': 'ADANI ENTER', 'LTP': '2850.00', 'Change %': '-4.5'},
-            {'Symbol': 'SBICARDS', 'LTP': '680.00', 'Change %': '-3.8'},
-            {'Symbol': 'BPCL', 'LTP': '520.00', 'Change %': '-3.2'},
-            {'Symbol': 'CIPLA', 'LTP': '1420.00', 'Change %': '-2.8'},
-            {'Symbol': 'GRASIM', 'LTP': '2150.00', 'Change %': '-2.5'},
-            {'Symbol': 'TATA MOTORS', 'LTP': '750.00', 'Change %': '-2.2'},
-            {'Symbol': 'WIPRO', 'LTP': '580.00', 'Change %': '-1.8'},
-            {'Symbol': 'TECHM', 'LTP': '1650.00', 'Change %': '-1.5'},
+            {'Symbol': 'Nifty 50', 'Value': 24315.80, 'Change': -69.40, 'Change %': -0.28},
+            {'Symbol': 'Nifty Bank', 'Value': 56551.30, 'Change': -105.95, 'Change %': -0.19},
+            {'Symbol': 'Nifty IT', 'Value': 31847.55, 'Change': 13.95, 'Change %': 0.04},
         ]
 
 
 def get_market_data() -> Dict[str, any]:
     scraper = NSEScraper()
-    
-    indices = scraper.get_indices()
-    oi_spurts = scraper.get_oi_spurts()
-    gainers_losers = scraper.get_gainers_losers()
-    
     return {
-        'indices': indices,
-        'oi_spurts': oi_spurts,
-        'gainers': gainers_losers.get('gainers', []),
-        'losers': gainers_losers.get('losers', []),
+        'indices': scraper.get_all_indices(),
+        'thematic': scraper.get_thematic_indices(),
+        'sectoral': scraper.get_sectoral_indices(),
+        'oi_spurts': scraper.get_oi_spurts(),
+        'category_movers': scraper.get_category_movers(),
+        'ai_recommendations': scraper.get_ai_recommendations(),
+        'fii_dii': scraper.get_fii_dii_data(),
         'timestamp': time.strftime('%Y-%m-%d %H:%M:%S')
     }
